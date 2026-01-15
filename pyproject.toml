@@ -1,0 +1,11 @@
+[project]
+name = "triplet-finder"
+version = "0.1.0"
+dependencies = [
+  "pandas",
+  "numpy",
+  "scipy"
+]
+
+[project.scripts]
+triad-finder = "triad_finder.cli:main"
