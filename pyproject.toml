@@ -1,5 +1,5 @@
 [project]
-name = "triplet-finder"
+name = "tripletfinder"
 version = "0.1.0"
 description = "Identify spatial cell triplets within a distance threshold"
 readme = "README.md"
@@ -16,4 +16,4 @@ dependencies = [
 ]
 
 [project.scripts]
-triplet-finder = "triplet_finder.cli:main"
+tripletfinder = "triplet_finder.cli:main"
