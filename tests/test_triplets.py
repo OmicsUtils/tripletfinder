@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from tripletfinder import find_triplets_with_details
+from triplet_finder import find_triplets_with_details
 
 
 def make_simple_triangle():

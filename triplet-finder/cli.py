@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 import pandas as pd
 
-from .tripletfinder import find_triplets_with_details, setup_logger
+from .triplet_finder import find_triplets_with_details, setup_logger
 
 
 def main():
@@ -21,6 +21,8 @@ def main():
 
     # Geometry
     parser.add_argument("--threshold", type=float, default=15.0)
+    parser.add_argument("--distance-mode", choices=["effective", "centroid"], default="effective")
+
     parser.add_argument("--image-col", default="image_sliced")
     parser.add_argument("--x-col", default="centroid_x_um")
     parser.add_argument("--y-col", default="centroid_y_um")
@@ -99,9 +101,12 @@ def main():
         print(f"Image column: {args.image_col}")
         print(f"X coordinate column: {args.x_col}")
         print(f"Y coordinate column: {args.y_col}")
-        print(f"Min cell diameter column: {args.min_cell_diameter_col}")
-        print(f"Max cell diameter column: {args.max_cell_diameter_col}")
+        print(f"Distance mode: {args.distance_mode}")
         print(f"Distance threshold: {args.threshold}")
+
+        if args.distance_mode == "effective":
+            print(f"Min cell diameter column: {args.min_cell_diameter_col}")
+            print(f"Max cell diameter column: {args.max_cell_diameter_col}")
 
         print("\nOutputs")
         print("-------")
@@ -115,32 +120,35 @@ def main():
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
 
-    # Ensure output set if not combined_output. 
-    if args.combined_output:
-        if not args.output:
-            raise ValueError("--output is required if --combined-output is set")
+    # Require output if combined mode
+    if args.combined_output and not args.output:
+        raise ValueError("--output is required if --combined-output is set")
 
-    # Build metadata for core
+    # Build metadata
     metadata = None
     if not args.no_metadata:
         try:
             from importlib.metadata import version
-            tool_version = version("triad-finder")
+            tool_version = version("triplet-finder")
         except Exception:
             tool_version = "unknown"
 
         metadata = {
-            "tool": "triad-finder",
+            "tool": "triplet-finder",
             "version": tool_version,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "command": " ".join(sys.argv),
+            "distance_mode": args.distance_mode,
             "threshold": args.threshold,
             "x_col": args.x_col,
             "y_col": args.y_col,
-            "min_cell_diameter_col": args.min_cell_diameter_col,
-            "max_cell_diameter_col": args.max_cell_diameter_col,
         }
 
+        if args.distance_mode == "effective":
+            metadata["min_cell_diameter_col"] = args.min_cell_diameter_col
+            metadata["max_cell_diameter_col"] = args.max_cell_diameter_col
+
+    # Call core
     triplets = find_triplets_with_details(
         input_data=input_data,
         image_col=args.image_col,
@@ -148,15 +156,16 @@ def main():
         y_col=args.y_col,
         min_cell_diameter_column=args.min_cell_diameter_col,
         max_cell_diameter_column=args.max_cell_diameter_col,
+        distance_mode=args.distance_mode,
         threshold=args.threshold,
         output_dir=args.output_dir,
         skip_processed=not args.no_skip,
-        return_triplets= args.combined_output,
+        return_triplets=args.combined_output,
         metadata=metadata,
         logger=logger,
     )
 
-    # Write combined output ONLY if requested
+    # Write combined output
     if args.combined_output:
         triplets.to_csv(args.output, index=False)
         logger.info(f"Wrote combined output to {args.output}")

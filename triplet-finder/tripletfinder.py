@@ -40,15 +40,15 @@ def setup_logger(logfile_path=None, verbose=True):
     return logger
 
 
-
 def find_triplets_with_details(
     input_data: pd.DataFrame,
     image_col: str,
     x_col: str,
     y_col: str,
-    min_cell_diameter_column: str,
-    max_cell_diameter_column: str,
-    threshold: float,
+    min_cell_diameter_column: str | None = None,
+    max_cell_diameter_column: str | None = None,
+    distance_mode: str = "effective",
+    threshold: float = 15.0,
     output_dir: str | None = None,
     skip_processed: bool = True,
     return_triplets: bool = False,
@@ -56,89 +56,36 @@ def find_triplets_with_details(
     logger=None,
 ) -> pd.DataFrame | None:
     """
-    Identify spatial triplets of cells within a specified effective distance threshold.
+    Identify spatial triplets of cells using either centroid or effective distance.
 
-    For each image (as defined by `image_col`), this function finds all unique triplets
-    of cells such that each pair within the triplet is within `threshold` distance of
-    one another after accounting for cell size. Pairwise distances are computed as the
-    centroid-to-centroid distance minus the sum of the two cells' radii, where each
-    radius is defined as the average of the minimum and maximum cell diameter columns.
-
-    The algorithm operates independently per image:
-      1. Cells are grouped by `image_col`.
-      2. A KD-tree is constructed using cell centroid coordinates.
-      3. Cell–cell adjacencies are determined based on the effective distance criterion.
-      4. Fully connected triplets (3-cliques) are enumerated.
-      5. For each triplet, the full per-cell metadata is attached with cell-specific
-         prefixes (e.g. `cell1_`, `cell2_`, `cell3_`).
-
-    Optionally, per-image CSV files can be written, and images with existing outputs
-    can be skipped. Metadata headers are written to per-image
-    outputs if `metadata` is provided.
-
-    If `return_triplets` is False, triplets are not accumulated in memory and
-    the function returns None.
-
-    Parameters
-    ----------
-    input_data : pandas.DataFrame
-        Input table containing one row per cell, including spatial coordinates,
-        image identifiers, and cell size information.
-    image_col : str
-        Column name identifying the image or field of view to group cells by.
-    x_col : str
-        Column name for the x-coordinate of the cell centroid.
-    y_col : str
-        Column name for the y-coordinate of the cell centroid.
-    min_cell_diameter_column : str
-        Column name for the minimum cell diameter (or caliper).
-    max_cell_diameter_column : str
-        Column name for the maximum cell diameter (or caliper).
-    threshold : float
-        Maximum allowed effective distance between two cells for them to be considered
-        adjacent. Effective distance is defined as centroid distance minus the sum of
-        the two cell radii.
-    output_dir : str or None, optional
-        Directory in which to write per-image triplet CSV files. If None, no per-image
-        files are written.
-    skip_processed : bool, optional
-        If True and `output_dir` is provided, images for which an output file already
-        exists are skipped.
-    return_triplets : bool, optional
-        If True, will return pandas dataframe with all triplets (warning, may require much memory to do this). Defaults to False. 
-    logger : logging.Logger or None, optional
-        Logger used for status and progress messages. If None, a module-level logger
-        is used.
-
-    Returns
-    -------
-    pandas.DataFrame
-        A DataFrame where each row corresponds to a single triplet. Columns include:
-        - `image`, `cell1_idx`, `cell2_idx`, `cell3_idx`
-        - All original input columns duplicated and prefixed with `cell1_`, `cell2_`,
-          and `cell3_` for the three cells in the triplet.
+    distance_mode:
+        - "effective": centroid distance minus radii (default)
+        - "centroid": raw centroid-to-centroid distance
     """
+
     if logger is None:
         logger = logging.getLogger(__name__)
 
-    required_cols = {
-        image_col,
-        x_col,
-        y_col,
-        min_cell_diameter_column,
-        max_cell_diameter_column,
-    }
+    if distance_mode not in {"effective", "centroid"}:
+        raise ValueError("distance_mode must be 'effective' or 'centroid'")
+
+    # Required columns
+    required_cols = {image_col, x_col, y_col}
+
+    if distance_mode == "effective":
+        if min_cell_diameter_column is None or max_cell_diameter_column is None:
+            raise ValueError("min/max diameter columns required for effective distance")
+        required_cols.update({min_cell_diameter_column, max_cell_diameter_column})
+
     missing = required_cols - set(input_data.columns)
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
     input_data2 = input_data.reset_index().rename(columns={"index": "orig_idx"})
-
     triplet_records = [] if return_triplets else None
 
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-
 
     for img_id, subinput_data in input_data2.groupby(image_col):
         out_path = None
@@ -151,39 +98,61 @@ def find_triplets_with_details(
         logger.info(f"Processing {img_id}")
 
         coords = subinput_data[[x_col, y_col]].to_numpy()
-        radii = (
-            subinput_data[min_cell_diameter_column].to_numpy()
-            + subinput_data[max_cell_diameter_column].to_numpy()
-        ) / 2.0
         idx = subinput_data["orig_idx"].to_numpy()
         N = len(coords)
 
         if N < 3:
             continue
 
-        tree = cKDTree(coords)
-        max_rad_sum = np.max(radii) * 2.0
-        search_radius = threshold + max_rad_sum
+        # Radii
+        if distance_mode == "effective":
+            radii = (
+                subinput_data[min_cell_diameter_column].to_numpy()
+                + subinput_data[max_cell_diameter_column].to_numpy()
+            ) / 2.0
+        else:
+            radii = np.zeros(N)
 
+        # KDTree
+        tree = cKDTree(coords)
+
+        if distance_mode == "effective":
+            max_rad_sum = np.max(radii) * 2.0
+            search_radius = threshold + max_rad_sum
+        else:
+            search_radius = threshold
+
+        # Build adjacency graph
         adj = {i: set() for i in range(N)}
 
         for i in range(N):
-            for j in tree.query_ball_point(coords[i], search_radius):
+            neighbors = tree.query_ball_point(coords[i], search_radius)
+            for j in neighbors:
                 if j <= i:
                     continue
+
                 d_cent = np.linalg.norm(coords[i] - coords[j])
-                d_eff = d_cent - (radii[i] + radii[j])
-                if d_eff <= threshold:
+
+                if distance_mode == "effective":
+                    d_val = d_cent - (radii[i] + radii[j])
+                else:
+                    d_val = d_cent
+
+                if d_val <= threshold:
                     adj[i].add(j)
                     adj[j].add(i)
 
+        # Find triplets
         img_records = []
 
         for i in range(N):
             for j in adj[i]:
                 if j <= i:
                     continue
-                for k in adj[i].intersection(adj[j]):
+
+                common = adj[i].intersection(adj[j])
+
+                for k in common:
                     if k <= j:
                         continue
 
@@ -205,18 +174,25 @@ def find_triplets_with_details(
                     if return_triplets:
                         triplet_records.append(record)
 
+        # Write per-image output
         if out_path:
             df_img = pd.DataFrame(img_records)
 
             with open(out_path, "w") as fh:
                 if metadata:
-                    for k, v in metadata.items():
-                        fh.write(f"# {k}: {v}\n")
+                    for k in sorted(metadata):
+                        fh.write(f"# {k}: {metadata[k]}\n")
                 df_img.to_csv(fh, index=False)
 
             logger.info(f"Wrote {out_path}")
 
+    # Return combined output if requested
     if return_triplets:
-        return pd.DataFrame(triplet_records)
+        if triplet_records:
+            return pd.DataFrame(triplet_records)
+        else:
+            return pd.DataFrame(
+                columns=["image", "cell1_idx", "cell2_idx", "cell3_idx"]
+            )
 
     return None
