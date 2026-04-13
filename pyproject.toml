@@ -1,14 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "tripletfinder"
-version = "0.1.0"
+name = "triplet-finder"
+version = "0.2.0"
 description = "Identify spatial cell triplets within a distance threshold"
 readme = "README.md"
-authors = [
-  { name="Dani V", email="dvait16@gmail.com" }
-]
-license = { text = "MIT" }
-
 requires-python = ">=3.9"
+authors = [
+  { name = "Dani V", email = "dvait16@gmail.com" }
+]
+license = "MIT"
 dependencies = [
   "pandas",
   "numpy",
@@ -16,4 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tripletfinder = "triplet_finder.cli:main"
+triplet-finder = "triplet_finder.cli:main"
+
+[tool.setuptools]
+packages = ["triplet_finder"]

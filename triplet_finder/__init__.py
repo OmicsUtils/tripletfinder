@@ -4,7 +4,7 @@ triplet_finder
 Identify spatial cell triplets within a distance threshold.
 """
 
-from .triplet_finder import find_triplets_with_details
+from .tripletfinder import find_triplets_with_details
 
 # Optional version (safe fallback)
 try:

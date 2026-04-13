@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 import pandas as pd
 
-from .triplet_finder import find_triplets_with_details, setup_logger
+from .tripletfinder import find_triplets_with_details, setup_logger
 
 
 def main():
