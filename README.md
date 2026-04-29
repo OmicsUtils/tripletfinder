@@ -287,14 +287,3 @@ This software was developed for internal research use and is provided “as is.�
 No guarantees are made regarding suitability for any specific purpose.
 Users are responsible for validating the software’s assumptions, correctness,
 and performance on their own data before applying it to analyses or publications.
-
-```
-
-The main changes are:
-- replaced the old single-definition paragraph with a two-mode definition
-- added `--distance-mode` to CLI usage
-- updated the summary example to include `Distance mode`
-- clarified that caliper columns are only used in `effective` mode
-- kept the Python import as `triplet_finder`
-- cleaned up the disclaimer wording and CSV capitalization
-```
